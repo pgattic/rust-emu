@@ -1,30 +1,32 @@
-pub mod mos;
+pub mod hardware;
+pub mod header;
 pub mod error;
-pub mod memory;
-use crate::mos::MOS6502;
 use crate::error::MOSError;
 
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 fn main() -> Result<(), MOSError> {
-    let initial_mem = Arc::new(Mutex::new(vec![0; 0xFFFF]));
+    // Initialize Hardware
+    let my_bus = Rc::new(RefCell::new(hardware::Bus::new()));
+    let mut my_cpu = hardware::MOS6502::new(Rc::clone(&my_bus));
+
+    // Example "cartridge" (currently not mapped correctly but eh)
+    let mut cart = vec![0; 0xFFFF];
+    // Reset vector
+    cart[0xFFFC] = 0x00;
+    cart[0xFFFD] = 0x80;
+    // Program code
+    cart[0x8000] = 0xA9; // LDA #
+    cart[0x8001] = 69;
+    cart[0x8002] = 0x85; // STA zpg
+    cart[0x8003] = 0x00; // zero-page address
+    cart[0x8004] = 0x00; // BRK
 
     {
-        let mut mem_access = initial_mem.lock().unwrap();
-
-        // Reset vector
-        mem_access[0xFFFC] = 0x00;
-        mem_access[0xFFFD] = 0x80;
-
-        // Program code
-        mem_access[0x8000] = 0xA9; // LDA #
-        mem_access[0x8001] = 69;
-        mem_access[0x8002] = 0x85; // STA zpg
-        mem_access[0x8003] = 0x00; // zero-page address
-        mem_access[0x8004] = 0x00; // BRK
+        let mut bus_access = my_bus.borrow_mut();
+        bus_access.load_rom(hardware::ROM::new(cart));
     }
-
-    let mut my_cpu = MOS6502::new(initial_mem.clone());
 
     my_cpu.init()?;
     println!("Program counter is now 0x{:x}", my_cpu.program_counter);
@@ -35,13 +37,12 @@ fn main() -> Result<(), MOSError> {
     my_cpu.step()?;
 
     {
-        let mem_access = initial_mem.lock().unwrap();
-        println!("The value at the address 0x00 is: {}", mem_access[0x00]);
+        let bus_access = my_bus.borrow();
+        println!("The value at the address 0x00 is: {}", bus_access.read(0x00));
     }
 
     assert_eq!(my_cpu.step(), Err(MOSError::Break));
 
     Ok(())
 }
-
 

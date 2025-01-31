@@ -1,5 +1,8 @@
-use std::sync::{Arc, Mutex};
+//use std::sync::{Arc, Mutex};
+use std::rc::Rc;
+use std::cell::RefCell;
 use crate::MOSError;
+use crate::hardware::Bus;
 
 /// Virtual MOS 6502 processor. The roles of the 6502 are as follows:
 ///
@@ -18,7 +21,7 @@ use crate::MOSError;
 /// - Frame counter control
 /// - Clock speed
 pub struct MOS6502 {
-    memory_access: Arc<Mutex<Vec<u8>>>,
+    bus: Rc<RefCell<Bus>>,
     pub program_counter: u16,
     a: u8,
     x: u8,
@@ -30,9 +33,9 @@ pub struct MOS6502 {
 
 impl MOS6502 {
     /// Creates a new 6502 CPU. Requires access to some form of memory
-    pub fn new(memory: Arc<Mutex<Vec<u8>>>) -> Self {
+    pub fn new(bus: Rc<RefCell<Bus>>) -> Self {
         Self {
-            memory_access: memory,
+            bus,
             program_counter: 0,
             a: 0, // Accumulator
             x: 0,
@@ -50,20 +53,19 @@ impl MOS6502 {
     ///
     /// In addition, the address space from $8000-$FFFF must be mapped to PRG ROM.
     pub fn init(&mut self) -> Result<(), MOSError> {
-        let mem = self.memory_access.lock().unwrap();
+        let bus = self.bus.borrow();
         // Get reset vector
         self.program_counter =
-            (*mem.get(0xFFFD).ok_or(MOSError::OutOfBounds)? as u16) << 8 |
-            *mem.get(0xFFFC).ok_or(MOSError::OutOfBounds)? as u16;
+            (bus.read(0xFFFD) as u16) << 8 |
+            (bus.read(0xFFFC) as u16);
         Ok(())
     }
 
     /// Steps the CPU by one clock cycle.
     pub fn step(&mut self) -> Result<(), MOSError> {
-        let mut mem = self.memory_access.lock().unwrap();
         if self.state.rem_cycles == 0 {
             // Fetch
-            let next_instr = mem.get(self.program_counter as usize).ok_or(MOSError::OutOfBounds)?.clone();
+            let next_instr = self.read(self.program_counter);
             self.state.current_instr = next_instr;
             // Decode
             match self.state.current_instr {
@@ -74,35 +76,35 @@ impl MOS6502 {
                 }
                 0x84 => { // STY zpg
                     self.state.rem_cycles = 3;
-                    let target = mem[self.program_counter as usize + 1];
-                    mem[target as usize] = self.y;
+                    let target = self.read(self.program_counter + 1);
+                    self.write(target.into(), self.y);
                     self.program_counter += 2;
                 }
                 0x85 => { // STA zpg
                     self.state.rem_cycles = 3;
-                    let target = mem[self.program_counter as usize + 1];
-                    mem[target as usize] = self.a;
+                    let target = self.read(self.program_counter + 1);
+                    self.write(target.into(), self.a);
                     self.program_counter += 2;
                 }
                 0x86 => { // STX zpg
                     self.state.rem_cycles = 3;
-                    let target = mem[self.program_counter as usize + 1];
-                    mem[target as usize] = self.x;
+                    let target = self.read(self.program_counter + 1);
+                    self.write(target.into(), self.x);
                     self.program_counter += 2;
                 }
                 0xA0 => { // LDY #
                     self.state.rem_cycles = 2;
-                    self.y = mem[self.program_counter as usize + 1];
+                    self.y = self.read(self.program_counter + 1);
                     self.program_counter += 2;
                 }
                 0xA2 => { // LDX #
                     self.state.rem_cycles = 2;
-                    self.x = mem[self.program_counter as usize + 1];
+                    self.x = self.read(self.program_counter + 1);
                     self.program_counter += 2;
                 }
                 0xA9 => { // LDA #
                     self.state.rem_cycles = 2;
-                    self.a = mem[self.program_counter as usize + 1];
+                    self.a = self.read(self.program_counter + 1);
                     self.program_counter += 2;
                 }
                 _ => {todo!()}
@@ -110,6 +112,14 @@ impl MOS6502 {
         }
         self.state.rem_cycles -= 1;
         Ok(())
+    }
+
+    fn read(&self, address: u16) -> u8 {
+        self.bus.borrow().read(address)
+    }
+
+    fn write(&self, address: u16, value: u8) {
+        self.bus.borrow_mut().write(address, value)
     }
 }
 
