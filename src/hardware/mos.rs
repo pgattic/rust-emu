@@ -1,7 +1,7 @@
 //use std::sync::{Arc, Mutex};
 use std::rc::Rc;
 use std::cell::RefCell;
-use crate::MOSError;
+use crate::RustNesError;
 use crate::hardware::Bus;
 
 /// Virtual MOS 6502 processor. The roles of the 6502 are as follows:
@@ -52,7 +52,7 @@ impl MOS6502 {
     /// tells the 6502 what address to initialize its program counter with.
     ///
     /// In addition, the address space from $8000-$FFFF must be mapped to PRG ROM.
-    pub fn init(&mut self) -> Result<(), MOSError> {
+    pub fn init(&mut self) -> Result<(), RustNesError> {
         let bus = self.bus.borrow();
         // Get reset vector
         self.program_counter =
@@ -62,7 +62,7 @@ impl MOS6502 {
     }
 
     /// Steps the CPU by one clock cycle.
-    pub fn step(&mut self) -> Result<(), MOSError> {
+    pub fn step(&mut self) -> Result<(), RustNesError> {
         if self.state.rem_cycles == 0 {
             // Fetch
             let next_instr = self.read(self.program_counter);
@@ -72,7 +72,7 @@ impl MOS6502 {
                 // Execute
                 0x00 => { // BRK impl
                     self.state.rem_cycles = 7;
-                    return Err(MOSError::Break);
+                    return Err(RustNesError::Break);
                 }
                 0x84 => { // STY zpg
                     self.state.rem_cycles = 3;

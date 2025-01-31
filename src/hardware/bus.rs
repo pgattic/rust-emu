@@ -8,7 +8,7 @@ pub struct Bus {
     mem: WorkMemory, // $0000-$1FFF (mirrored three times)
     //ppu: PPU, // $2000-3FFF (mirrored every 8 bytes)
     //apu: APU, // $4000-401F ($4018-1F unused)
-    rom: Option<ROM>,
+    rom: Option<Cart>,
 }
 
 impl Bus {
@@ -21,7 +21,7 @@ impl Bus {
         }
     }
 
-    pub fn load_rom(&mut self, rom: ROM) {
+    pub fn load_rom(&mut self, rom: Cart) {
         self.rom = Some(rom);
     }
 

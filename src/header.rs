@@ -13,8 +13,8 @@ pub struct NESHeader {
 }
 
 impl NESHeader {
-    pub fn from_bytes(bytes: &[u8; 16]) -> Option<Self> {
-        if bytes[0..3] != [b'N', b'E', b'S', 0x1A] {
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if !(bytes[0] == b'N' && bytes[1] == b'E' && bytes[2] == b'S' && bytes[3] == 0x1A) {
             return None;
         }
         let prg_size: usize = if bytes[9] & 0x0F == 0x0F {
