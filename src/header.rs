@@ -13,6 +13,7 @@ pub struct NESHeader {
 }
 
 impl NESHeader {
+    /// Creates a `NESHeader` given the first 16 bytes found at the beginning of the ROM.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if !(bytes[0] == b'N' && bytes[1] == b'E' && bytes[2] == b'S' && bytes[3] == 0x1A) {
             return None;
@@ -67,6 +68,8 @@ impl NESHeader {
     }
 }
 
+/// `Vertical`: "mirrored horizontally", or mapper-controlled
+/// 'Horizontal`: "mirrored vertically"
 pub enum NameTableLayout {
     Vertical,
     Horizontal,

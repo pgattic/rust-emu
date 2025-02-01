@@ -1,8 +1,34 @@
-//use std::sync::{Arc, Mutex};
 use std::rc::Rc;
+use std::collections::VecDeque;
 use std::cell::RefCell;
 use crate::RustNesError;
 use crate::hardware::Bus;
+
+const MAX_INSTR_CYCLES: usize = 8;
+
+#[derive(Clone, Copy)]
+struct InstrDef {
+    pub cycles: usize,
+    pub u_ops: [Option<fn(&mut MOS6502)>; MAX_INSTR_CYCLES]
+}
+
+impl InstrDef {
+    /// Helper function for generating definitions easily.
+    ///
+    /// NOTE that the actual processing of an instruction is 1 less cycle than how long it takes on
+    /// paper; the first cycle is actually fetching the instruction.
+    pub fn from(ops: &[fn(&mut MOS6502)]) -> Self {
+        let cycles = ops.len();
+        let mut u_ops = [None; MAX_INSTR_CYCLES];
+        for (i, op) in ops[..cycles].iter().enumerate() {
+            u_ops[i] = Some(*op);
+        }
+        Self {
+            cycles,
+            u_ops,
+        }
+    }
+}
 
 /// Virtual MOS 6502 processor. The roles of the 6502 are as follows:
 ///
@@ -26,23 +52,41 @@ pub struct MOS6502 {
     a: u8,
     x: u8,
     y: u8,
-    status: u8,
-    stack_ptr: u8,
+    //status: u8,
+    //stack_ptr: u8,
     state: MOSState,
+    instructions: [InstrDef; 256],
 }
 
 impl MOS6502 {
-    /// Creates a new 6502 CPU. Requires access to some form of memory
+    /// Creates a new 6502 CPU. Requires access to a memory bus
     pub fn new(bus: Rc<RefCell<Bus>>) -> Self {
+
+        let mut instrs: [InstrDef; 256] = [InstrDef{cycles: 0, u_ops: [None; MAX_INSTR_CYCLES]}; 256];
+
+        instrs[0x84] = // STY zpg
+            InstrDef::from(&[Self::imm_zpg, Self::abs_sty]);
+        instrs[0x85] = // STA zpg
+            InstrDef::from(&[Self::imm_zpg, Self::abs_sta]);
+        instrs[0x86] = // STX zpg
+            InstrDef::from(&[Self::imm_zpg, Self::abs_stx]);
+        instrs[0xA0] = // LDY #
+            InstrDef::from(&[Self::imm_ldy]);
+        instrs[0xA2] = // LDX #
+            InstrDef::from(&[Self::imm_ldx]);
+        instrs[0xA9] = // LDA #
+            InstrDef::from(&[Self::imm_lda]);
+
         Self {
             bus,
             program_counter: 0,
             a: 0, // Accumulator
             x: 0,
             y: 0,
-            status: 0,
-            stack_ptr: 0,
+            //status: 0,
+            //stack_ptr: 0,
             state: MOSState::new(),
+            instructions: instrs
         }
     }
 
@@ -52,6 +96,9 @@ impl MOS6502 {
     /// tells the 6502 what address to initialize its program counter with.
     ///
     /// In addition, the address space from $8000-$FFFF must be mapped to PRG ROM.
+    ///
+    /// TODO: Rewrite this to actually set the State machine to the correct micro-operations that
+    /// perform this, instead of just doing it here. It's supposed to take like 8 cycles I think?
     pub fn init(&mut self) -> Result<(), RustNesError> {
         let bus = self.bus.borrow();
         // Get reset vector
@@ -62,64 +109,83 @@ impl MOS6502 {
     }
 
     /// Steps the CPU by one clock cycle.
+    ///
+    /// Famously short function. I know, I know, I'm really cool.
+    ///
+    /// NOTE that the "fetch" stage always accounts for the first cycle of any instruction. This is
+    /// why the branching is bi-conditional; for any instruction, this first cycle is implied.
     pub fn step(&mut self) -> Result<(), RustNesError> {
-        if self.state.rem_cycles == 0 {
-            // Fetch
-            let next_instr = self.read(self.program_counter);
-            self.state.current_instr = next_instr;
-            // Decode
-            match self.state.current_instr {
-                // Execute
-                0x00 => { // BRK impl
-                    self.state.rem_cycles = 7;
-                    return Err(RustNesError::Break);
+        match self.state.u_op_queue.pop_front() {
+            None => {
+                self.imm_f(); // Fetch
+                if self.state.fetch == 0 { // BRK (the exception to the rule)
+                    return Err(RustNesError::Break)
                 }
-                0x84 => { // STY zpg
-                    self.state.rem_cycles = 3;
-                    let target = self.read(self.program_counter + 1);
-                    self.write(target.into(), self.y);
-                    self.program_counter += 2;
+                let next_instr = self.instructions[self.state.fetch as usize];
+                if next_instr.cycles == 0 {
+                    return Err(RustNesError::InvalidOpcode(self.state.fetch))
                 }
-                0x85 => { // STA zpg
-                    self.state.rem_cycles = 3;
-                    let target = self.read(self.program_counter + 1);
-                    self.write(target.into(), self.a);
-                    self.program_counter += 2;
+                for i in 0..next_instr.cycles { // Decode
+                    self.state.u_op_queue.push_back(next_instr.u_ops[i].unwrap());
                 }
-                0x86 => { // STX zpg
-                    self.state.rem_cycles = 3;
-                    let target = self.read(self.program_counter + 1);
-                    self.write(target.into(), self.x);
-                    self.program_counter += 2;
-                }
-                0xA0 => { // LDY #
-                    self.state.rem_cycles = 2;
-                    self.y = self.read(self.program_counter + 1);
-                    self.program_counter += 2;
-                }
-                0xA2 => { // LDX #
-                    self.state.rem_cycles = 2;
-                    self.x = self.read(self.program_counter + 1);
-                    self.program_counter += 2;
-                }
-                0xA9 => { // LDA #
-                    self.state.rem_cycles = 2;
-                    self.a = self.read(self.program_counter + 1);
-                    self.program_counter += 2;
-                }
-                _ => {todo!()}
-            }
+            },
+            Some(next) => { next(self) }, // Execute
         }
-        self.state.rem_cycles -= 1;
         Ok(())
     }
 
-    fn read(&self, address: u16) -> u8 {
-        self.bus.borrow().read(address)
+    // CPU SUB-INSTRUCTIONS //
+    // I Have no idea if this strat will work long-term. But the model works in my mind.
+    // In short, I want to create a function to represent each possible cycle that happens in the
+    // CPU, so the opcodes can simply reference a list of these as their spec. (See MOS6502::new)
+
+    // FETCHERS //
+
+    /// Fetch immediate value from memory, increment PC
+    fn imm_f(&mut self) {
+        self.state.fetch = self.bus.borrow_mut().read(self.program_counter);
+        self.program_counter += 1;
+    }
+    /// Immediate fetch into accumulator
+    fn imm_lda(&mut self) {
+        self.imm_f();
+        self.a = self.state.fetch;
+    }
+    /// Immediate fetch into Y reg
+    fn imm_ldy(&mut self) {
+        self.imm_f();
+        self.y = self.state.fetch;
+    }
+    /// Immediate fetch into X reg
+    fn imm_ldx(&mut self) {
+        self.imm_f();
+        self.x = self.state.fetch;
+    }
+    /// Immediate zero-page fetch into address latch
+    fn imm_zpg(&mut self) {
+        self.imm_f();
+        self.state.addr_latch = self.state.fetch as u16;
     }
 
-    fn write(&self, address: u16, value: u8) {
-        self.bus.borrow_mut().write(address, value)
+    // STORERS //
+    /// Absolute store from fetch
+    fn abs_stf(&mut self) {
+        self.bus.borrow_mut().write(self.state.addr_latch, self.state.fetch);
+    }
+    /// Absolute store from Y reg
+    fn abs_sty(&mut self) {
+        self.state.fetch = self.y;
+        self.abs_stf();
+    }
+    /// Absolute store from accumulator
+    fn abs_sta(&mut self) {
+        self.state.fetch = self.a;
+        self.abs_stf();
+    }
+    /// Absolute store from X reg
+    fn abs_stx(&mut self) {
+        self.state.fetch = self.x;
+        self.abs_stf();
     }
 }
 
@@ -127,19 +193,27 @@ impl MOS6502 {
 // - Required clock cycles of an instruction
 // - What operation(s) to perform (potentially for each clock cycle)
 // - Number of bytes the instruction needs (therefore how much to move the PC)
-// - Whether or not the instruction needs memory access (to help limit lock usage)
 
 /// Internal state machine responsible for tracking mid-execution information.
+///
+/// Contains hidden registers:
+/// - Instruction register: current instruction being operated on
+/// - Address latch: accumulates (16-bit) address to be sent to memory bus
+/// - Micro-op queue: representation of the NES's state machine for its current and future jobs
 struct MOSState {
     current_instr: u8,
-    rem_cycles: u8,
+    fetch: u8,
+    addr_latch: u16,
+    u_op_queue: VecDeque<fn(&mut MOS6502)>
 }
 
 impl MOSState {
     pub fn new() -> Self {
         Self {
             current_instr: 0,
-            rem_cycles: 0,
+            fetch: 0,
+            addr_latch: 0,
+            u_op_queue: VecDeque::new(),
         }
     }
 }

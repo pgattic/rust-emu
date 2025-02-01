@@ -1,6 +1,7 @@
 pub mod hardware;
 pub mod header;
 pub mod error;
+use crate::header::NESHeader;
 use crate::error::RustNesError;
 
 use std::cell::RefCell;
@@ -16,27 +17,30 @@ struct Cli {
     file: String,
 }
 
-
 fn main() -> Result<(), RustNesError> {
     let args = Cli::parse();
-    let rom_file = match fs::read(&args.file) {
-        Ok(data) => data,
-        Err(err) => {
-            eprintln!("Error: can't open file '{}': {}", args.file, err);
-            std::process::exit(0x02);
-        }
+
+    // Load Cartridge
+    let cart = {
+        let rom_file = match fs::read(&args.file) {
+            Ok(data) => data,
+            Err(err) => {
+                eprintln!("Error: can't open file '{}': {}", args.file, err);
+                std::process::exit(0x02);
+            }
+        };
+        let header = NESHeader::from_bytes(&rom_file[0..15]).ok_or(RustNesError::InvalidHeader)?;
+        RefCell::new(hardware::Cart::new(header, &rom_file[16..]))
     };
 
-    let header = header::NESHeader::from_bytes(&rom_file[0..15]).ok_or(RustNesError::InvalidHeader)?;
-
     // Initialize Hardware
-    let my_bus = Rc::new(RefCell::new(hardware::Bus::new()));
+    let my_ppu = RefCell::new(hardware::PPU::new());
+    let my_apu = RefCell::new(hardware::APU::new());
+    let my_bus = Rc::new(RefCell::new(hardware::Bus::new(my_ppu, my_apu)));
     let mut my_cpu = hardware::MOS6502::new(my_bus.clone());
 
-    {
-        let mut bus_access = my_bus.borrow_mut();
-        bus_access.load_rom(hardware::Cart::new(header, &rom_file[16..]));
-    }
+    // Input cart
+    my_bus.borrow_mut().load_cart(cart);
 
     my_cpu.init()?;
     println!("Program counter is now 0x{:x}", my_cpu.program_counter);

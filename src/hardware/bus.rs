@@ -1,4 +1,5 @@
 use crate::hardware::*;
+use std::cell::RefCell;
 
 /// NES MEMORY BUS
 ///
@@ -6,23 +7,23 @@ use crate::hardware::*;
 /// all hardware on the system.
 pub struct Bus {
     mem: WorkMemory, // $0000-$1FFF (mirrored three times)
-    //ppu: PPU, // $2000-3FFF (mirrored every 8 bytes)
-    //apu: APU, // $4000-401F ($4018-1F unused)
-    rom: Option<Cart>,
+    ppu: RefCell<PPU>, // $2000-3FFF (mirrored every 8 bytes)
+    apu: RefCell<APU>, // $4000-401F ($4018-1F unused)
+    cart: Option<RefCell<Cart>>,
 }
 
 impl Bus {
-    pub fn new() -> Self {
+    pub fn new(ppu: RefCell<PPU>, apu: RefCell<APU>) -> Self {
         Self {
             mem: WorkMemory::new(),
-            //ppu: PPU::new(),
-            //apu: APU::new(),
-            rom: None,
+            ppu,
+            apu,
+            cart: None,
         }
     }
 
-    pub fn load_rom(&mut self, rom: Cart) {
-        self.rom = Some(rom);
+    pub fn load_cart(&mut self, cart: RefCell<Cart>) {
+        self.cart = Some(cart);
     }
 
     pub fn read(&self, address: u16) -> u8 {
@@ -30,19 +31,18 @@ impl Bus {
             0x0000..=0x1FFF => {
                 self.mem.read(address & 0x07FF)
             }
-            //0x2000..=0x3FFF => {
-            //    self.ppu.read(address & 0x200F)
-            //}
-            //0x4000..=0x401F => {
-            //    self.apu.read(address)
-            //}
+            0x2000..=0x3FFF => {
+                self.ppu.borrow_mut().read(address & 0x200F)
+            }
+            0x4000..=0x401F => {
+                self.apu.borrow_mut().read(address)
+            }
             0x4020..=0xFFFF => {
-                match &self.rom {
-                    Some(rom) => rom.read(address),
+                match &self.cart {
+                    Some(rom) => rom.borrow_mut().read(address),
                     None => 0
                 }
             }
-            _ => todo!()
         }
     }
 
@@ -51,16 +51,17 @@ impl Bus {
             0x0000..=0x1FFF => {
                 self.mem.write(address & 0x07FF, value)
             }
-            //0x2000..=0x3FFF => {
-            //    //self.ppu.write(address & 0x200F, value)
-            //}
-            //0x4000..=0x401F => {
-            //    //self.apu.write(address, value)
-            //}
-            0x4020..=0xFFFF => {
-                //self.rom.write(address, value)
+            0x2000..=0x3FFF => {
+                self.ppu.borrow_mut().write(address & 0x200F, value)
             }
-            _ => todo!()
+            0x4000..=0x401F => {
+                self.apu.borrow_mut().write(address, value)
+            }
+            0x4020..=0xFFFF => {
+                if let Some(cart) = &self.cart {
+                    cart.borrow_mut().write(address, value)
+                }
+            }
         }
     }
 }

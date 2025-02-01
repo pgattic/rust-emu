@@ -1,10 +1,10 @@
 
-/// Errors that can lead to undefined behavior or cause CPU reset
+/// Errors specific to the project
 #[derive(Debug, Eq, PartialEq)]
 pub enum RustNesError {
     InvalidHeader,
     Break,
     OutOfBounds,
-    InvalidOpcode,
+    InvalidOpcode(u8),
 }
 
