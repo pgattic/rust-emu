@@ -3,6 +3,7 @@ pub mod header;
 pub mod error;
 use crate::header::NESHeader;
 use crate::error::RustNesError;
+use crate::hardware::*;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -30,18 +31,19 @@ fn main() -> Result<(), RustNesError> {
             }
         };
         let header = NESHeader::from_bytes(&rom_file[0..15]).ok_or(RustNesError::InvalidHeader)?;
-        RefCell::new(hardware::Cart::new(header, &rom_file[16..]))
+        RefCell::new(Cart::new(header, &rom_file[16..]))
     };
 
     // Initialize Hardware
-    let my_ppu = RefCell::new(hardware::PPU::new());
-    let my_apu = RefCell::new(hardware::APU::new());
-    let my_bus = Rc::new(RefCell::new(hardware::Bus::new(my_ppu, my_apu)));
-    let mut my_cpu = hardware::MOS6502::new(my_bus.clone());
+    let my_ppu = RefCell::new(PPU::new());
+    let my_apu = RefCell::new(APU::new());
+    let my_bus = Rc::new(RefCell::new(Bus::new(my_ppu, my_apu)));
+    let mut my_cpu = MOS6502::new(my_bus.clone());
 
     // Input cart
     my_bus.borrow_mut().load_cart(cart);
 
+    // Just go through the sample code in the cart, make sure it all works
     my_cpu.init()?;
     println!("Program counter is now 0x{:x}", my_cpu.program_counter);
     my_cpu.step()?;
@@ -55,7 +57,7 @@ fn main() -> Result<(), RustNesError> {
         println!("The value at the address 0x00 is: {}", bus_access.read(0x00));
     }
 
-    assert_eq!(my_cpu.step(), Err(RustNesError::Break));
+    assert_eq!(my_cpu.step(), Err(RustNesError::InvalidOpcode(0)));
 
     Ok(())
 }
