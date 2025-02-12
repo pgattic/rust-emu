@@ -1,14 +1,25 @@
 
-# Rust-nes
+# Rust-NES
 
-Just a hobby NES emulator. Trying to be cycle-accurate.
+Just a hobby NES emulator.
 
 ## Purpose
 
 I am attempting to make this emulator as hardware-accurate as possible, for two reasons:
 
-- To see how good I actually am at modelling a real world system in code
+- To see how good I actually am at modeling a real-world system in software
 - I have no idea how accurate an NES emulator needs to be for it to play games well. I guess I will figure that out along the way, but I like to play things safe.
+
+In addition, I want to learn more about real-time systems that require shared resources.
+
+## Usage
+
+- Compiling my example ROM (A really stupid test program):
+    - Ensure you have freem's [asm6f](https://github.com/freem/asm6f) installed (available in Arch Linux as `asm6f` package)
+    - `asm6f sample.asm`
+- Running the Emulator:
+    - Have the [Rust build system](https://www.rust-lang.org/tools/install) set up
+    - `cargo run --release -- [ROM.nes]`
 
 ## Roadmap
 
@@ -18,7 +29,7 @@ I am attempting to make this emulator as hardware-accurate as possible, for two 
     - [X] Correct hardware mapping
     - Mappers:
         - none yet! :P
-- [ ] 6502 core (56 instructions)
+- [ ] 6502 core (56 instructions, 151 opcodes)
     - [ ] ADC
     - [ ] AND
     - [ ] ASL
@@ -77,4 +88,10 @@ I am attempting to make this emulator as hardware-accurate as possible, for two 
     - [ ] TYA
 - [ ] PPU
 - [ ] APU
+
+## Helpful Resources
+
+- Thanks to [NESDEV](https://www.nesdev.org/wiki) for their simply amazing work on documenting the NES hardware
+- mass:werk's excellent [Instruction Set](https://www.masswerk.at/6502/6502_instruction_set.html) reference
+- doppelganger's [Super Mario Bros. Disassembly](https://gist.github.com/1wErt3r/4048722) for giving me some good assembly code examples to reference.
 
