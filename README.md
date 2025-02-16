@@ -60,8 +60,8 @@ In addition, I want to learn more about real-time systems that require shared re
     - [ ] JMP
     - [ ] JSR
     - [X] LDA
-    - [ ] LDX
-    - [ ] LDY
+    - [X] LDX
+    - [X] LDY
     - [ ] LSR
     - [X] NOP
     - [ ] ORA
