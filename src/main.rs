@@ -44,7 +44,7 @@ fn main() -> Result<(), RustNesError> {
     my_bus.borrow_mut().load_cart(cart);
 
     // Just go through the sample code in the cart, make sure it all works
-    my_cpu.init()?;
+    my_cpu.reset()?;
     println!("Program counter is now 0x{:x}", my_cpu.program_counter);
     my_cpu.step()?;
     my_cpu.step()?;

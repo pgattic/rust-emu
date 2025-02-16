@@ -15,7 +15,7 @@ In addition, I want to learn more about real-time systems that require shared re
 ## Usage
 
 - Compiling my example ROM (A really stupid test program):
-    - Ensure you have freem's [asm6f](https://github.com/freem/asm6f) installed (available in Arch Linux as `asm6f` package)
+    - Ensure you have freem's [asm6f](https://github.com/freem/asm6f) installed (available in the AUR as `asm6f` package)
     - `asm6f sample.asm`
 - Running the Emulator:
     - Have the [Rust build system](https://www.rust-lang.org/tools/install) set up
@@ -59,7 +59,7 @@ In addition, I want to learn more about real-time systems that require shared re
     - [ ] INY
     - [ ] JMP
     - [ ] JSR
-    - [ ] LDA
+    - [X] LDA
     - [ ] LDX
     - [ ] LDY
     - [ ] LSR

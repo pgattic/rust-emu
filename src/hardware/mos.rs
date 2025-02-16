@@ -109,7 +109,7 @@ impl MOS6502 {
 
         instrs[0xA0] = // LDY #
             InstrDef::from(&[Self::imm_y]);
-        instrs[0xA1] = // LDX x,ind
+        instrs[0xA1] = // LDA x,ind
             InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::ind_lo_aal, Self::ind_hi_aal, Self::aal_lda]);
         instrs[0xA2] = // LDX #
             InstrDef::from(&[Self::imm_x]);
@@ -120,12 +120,16 @@ impl MOS6502 {
         instrs[0xAD] = // LDA abs
             InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_lda]);
 
+        instrs[0xB1] = // LDA ind, y
+            InstrDef::from(&[Self::imm_zal, Self::ind_lo_aal, Self::ind_hi_aal, Self::y_aal_lda]);
+        // NOTE: The x register is actually added to the zeropage latch, while when similar
+        // operations are performed on the Absolute latch, the absolute latch is not modified.
         instrs[0xB5] = // LDA zpg, X
-            InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::aal_lda]);
+            InstrDef::from(&[Self::imm_zal, Self::add_x_zal /* <- NOTE here */, Self::zal_lda]);
         instrs[0xB9] = // LDA abs, Y
-            InstrDef::from(&[Self::imm_lo_aal, Self::add_y_aal, Self::aal_lda]);
+            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::y_aal_lda]);
         instrs[0xBD] = // LDA abs, X
-            InstrDef::from(&[Self::imm_lo_aal, Self::add_x_aal, Self::aal_lda]);
+            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::x_aal_lda]);
 
         instrs[0xEA] = // NOP
             InstrDef::from(&[Self::nop]);
@@ -270,6 +274,30 @@ impl MOS6502 {
         self.upd_nz(self.a);
     }
 
+    /// Absolute fetch (plus index stored in x) into accumulator.
+    /// Page crossings incur additional cycle
+    fn x_aal_lda(&mut self) {
+        if self.state.abs_addr_latch & 0xFF + self.x as u16 > 0xFF {
+            // Wait an extra cycle.
+            // IRL harware takes an extra cycle to resolve the new page.
+            self.state.u_op_queue.push_front(Self::nop);
+        }
+        self.a = self.bus.borrow_mut().read(self.state.abs_addr_latch + self.x as u16);
+        self.upd_nz(self.a);
+    }
+
+    /// Absolute fetch (plus index stored in y) into accumulator.
+    /// Page crossings incur additional cycle
+    fn y_aal_lda(&mut self) {
+        if self.state.abs_addr_latch & 0xFF + self.y as u16 > 0xFF {
+            // Wait an extra cycle.
+            // IRL harware takes an extra cycle to resolve the new page.
+            self.state.u_op_queue.push_front(Self::nop);
+        }
+        self.a = self.bus.borrow_mut().read(self.state.abs_addr_latch + self.y as u16);
+        self.upd_nz(self.a);
+    }
+
     // ------- //
     // STORERS //
     // ------- //
@@ -314,26 +342,6 @@ impl MOS6502 {
         self.wr_zpg();
     }
 
-    /// Add value stored in Y reg to Absolute Address Latch
-    /// May incur an additional clock cycle
-    fn add_y_aal(&mut self) {
-        let old_pg = self.state.abs_addr_latch & 0xFF00;
-        self.state.abs_addr_latch += self.y as u16;
-        if self.state.abs_addr_latch & 0xFF00 != old_pg {
-            // Wait an extra cycle.
-            // IRL harware takes an extra cycle to resolve the new page.
-            self.state.u_op_queue.push_front(Self::nop);
-        }
-    }
-    /// Add value stored in reg. X to Absolute Address Latch (may unshift extra cycle to op queue)
-    fn add_x_aal(&mut self) {
-        let old_pg = self.state.abs_addr_latch & 0xFF00;
-        self.state.abs_addr_latch += self.x as u16;
-        if self.state.abs_addr_latch & 0xFF00 != old_pg { // Wait an extra cycle
-            // IRL harware takes an extra cycle to resolve the new page.
-            self.state.u_op_queue.push_front(Self::nop);
-        }
-    }
     /// Add value stored in reg. X to Zero-page Address Latch
     fn add_x_zal(&mut self) {
         self.state.zpg_addr_latch += self.x
