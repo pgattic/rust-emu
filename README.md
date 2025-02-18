@@ -24,12 +24,12 @@ In addition, I want to learn more about real-time systems that require shared re
 ## Roadmap
 
 - [X] Basic hardware layout
-- [ ] Header decoding
-- [ ] Memory Bus
-    - [X] Correct hardware mapping
+- [X] Header decoding
+- Memory Bus
+    - [X] Correct hardware rerouting
     - Mappers:
         - none yet! :P
-- [ ] 6502 core (56 instructions, 151 opcodes)
+- [ ] 6502 core (56 instructions, 151 opcodes, all cycle-accurate)
     - [ ] ADC
     - [ ] AND
     - [ ] ASL
@@ -40,7 +40,7 @@ In addition, I want to learn more about real-time systems that require shared re
     - [ ] BMI
     - [ ] BNE
     - [ ] BPL
-    - [X] BRK
+    - [X] BRK (1 opcode)
     - [ ] BVC
     - [ ] BVS
     - [ ] CLC
@@ -59,11 +59,11 @@ In addition, I want to learn more about real-time systems that require shared re
     - [ ] INY
     - [ ] JMP
     - [ ] JSR
-    - [X] LDA
-    - [X] LDX
-    - [X] LDY
+    - [X] LDA (8 opcodes)
+    - [X] LDX (5 opcodes)
+    - [X] LDY (5 opcodes)
     - [ ] LSR
-    - [X] NOP
+    - [X] NOP (1 opcode)
     - [ ] ORA
     - [ ] PHA
     - [ ] PHP
@@ -77,9 +77,9 @@ In addition, I want to learn more about real-time systems that require shared re
     - [ ] SEC
     - [ ] SED
     - [ ] SEI
-    - [ ] STA
-    - [ ] STX
-    - [ ] STY
+    - [ ] STA (3/7 opcodes)
+    - [X] STX (3 opcodes)
+    - [X] STY (3 opcodes)
     - [ ] TAX
     - [ ] TAY
     - [ ] TSX

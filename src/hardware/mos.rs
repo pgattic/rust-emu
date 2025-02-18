@@ -114,6 +114,19 @@ impl MOS6502 {
             InstrDef::from(&[Self::imm_zal, Self::zal_sta]);
         instrs[0x86] = // STX zpg
             InstrDef::from(&[Self::imm_zal, Self::zal_stx]);
+        instrs[0x8C] = // STY abs
+            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_sty]);
+        instrs[0x8D] = // STA abs
+            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_sta]);
+        instrs[0x8E] = // STX abs
+            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_stx]);
+
+        instrs[0x94] = // STY zpg, X
+            InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::zal_sty]);
+        instrs[0x95] = // STA zpg, X
+            InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::zal_sta]);
+        instrs[0x96] = // STX zpg, Y
+            InstrDef::from(&[Self::imm_zal, Self::add_y_zal, Self::zal_stx]);
 
         instrs[0xA0] = // LDY #
             InstrDef::from(&[Self::imm_y]);
