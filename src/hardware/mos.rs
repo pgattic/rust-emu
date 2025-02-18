@@ -6,13 +6,15 @@ use std::cell::RefCell;
 use crate::RustNesError;
 use crate::hardware::Bus;
 
-const MAX_INSTR_CYCLES: usize = 8;
+/// Maximum number of instruction cycles an instruction can use.
+/// Yeah, smells like CISC to me.
+const MAX_INSTR_CYCLES: usize = 6;
 
 /// Const-sized struct for storing an instruction definition.
 #[derive(Clone, Copy)]
 struct InstrDef {
     pub cycles: usize,
-    pub u_ops: [Option<fn(&mut MOS6502)>; MAX_INSTR_CYCLES]
+    pub u_ops: [Option<fn(&mut MOS6502) -> ()>; MAX_INSTR_CYCLES]
 }
 
 impl InstrDef {
@@ -21,13 +23,13 @@ impl InstrDef {
     /// NOTE that the actual processing of an instruction is 1 less cycle than how long it takes on
     /// paper; the first cycle is actually fetching the instruction.
     pub fn from(ops: &[fn(&mut MOS6502)]) -> Self {
-        let cycles = ops.len();
+        assert!(ops.len() <= MAX_INSTR_CYCLES);
         let mut u_ops = [None; MAX_INSTR_CYCLES];
-        for (i, op) in ops[..cycles].iter().enumerate() {
-            u_ops[i] = Some(*op);
+        for (i, &op) in ops.iter().enumerate() {
+            u_ops[i] = Some(op);
         }
         Self {
-            cycles,
+            cycles: ops.len(),
             u_ops,
         }
     }
@@ -58,8 +60,8 @@ bitflags! {
 /// - Fetch, decode and execute instructions
 /// - Perform arithmetic operations through integrated ALU
 ///
-/// The 6502, being a CISC architecture, has an internal state machine responsible for tracking
-/// information such as which cycle within a given instruction it is on.
+/// The 6502 has an internal state machine responsible for tracking information such as which cycle
+/// within a given instruction it is on.
 ///
 /// Notably, the 6502 is unaware of any memory mapping, as the 2A03 handles that.
 /// As opposed to the CPU itself, the roles of the 2A03 chip include:
@@ -100,12 +102,18 @@ impl MOS6502 {
 
         let mut instrs: [InstrDef; 256] = [InstrDef{cycles: 0, u_ops: [None; MAX_INSTR_CYCLES]}; 256];
 
+        // Here we define each CPU opcode by what it does for each cycle of its execution.
+        // Each opcode is represented simply by a list of function references. As seen in the
+        // definition of `InstrDef`, the function signatures must be `fn(&mut MOS6502) -> ()`.
+        // I guess in this sense, they're actually procedures since their only purpose is to modify
+        // state.
+
         instrs[0x84] = // STY zpg
-            InstrDef::from(&[Self::imm_zal, Self::wr_y_zpg]);
+            InstrDef::from(&[Self::imm_zal, Self::zal_sty]);
         instrs[0x85] = // STA zpg
-            InstrDef::from(&[Self::imm_zal, Self::wr_a_zpg]);
+            InstrDef::from(&[Self::imm_zal, Self::zal_sta]);
         instrs[0x86] = // STX zpg
-            InstrDef::from(&[Self::imm_zal, Self::wr_x_zpg]);
+            InstrDef::from(&[Self::imm_zal, Self::zal_stx]);
 
         instrs[0xA0] = // LDY #
             InstrDef::from(&[Self::imm_y]);
@@ -119,8 +127,10 @@ impl MOS6502 {
             InstrDef::from(&[Self::imm_zal, Self::zal_lda]);
         instrs[0xA6] = // LDX zpg
             InstrDef::from(&[Self::imm_zal, Self::zal_ldx]);
+        // instrs[0xA8] = // TAY impl
         instrs[0xA9] = // LDA #
             InstrDef::from(&[Self::imm_a]);
+        // instrs[0xAA] = // TAX impl
         instrs[0xAC] = // LDY abs
             InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_ldy]);
         instrs[0xAD] = // LDA abs
@@ -189,8 +199,6 @@ impl MOS6502 {
 
     /// Steps the CPU by one clock cycle.
     ///
-    /// Famously short function. I know, I know, I'm really cool.
-    ///
     /// NOTE that the "fetch" stage always accounts for the first cycle of any instruction.
     /// For any instruction, this first cycle is implied.
     pub fn step(&mut self) -> Result<(), RustNesError> {
@@ -208,16 +216,25 @@ impl MOS6502 {
         Ok(())
     }
 
-    // CPU SUB-INSTRUCTIONS //
-    // I Have no idea if this strat will work long-term. But the model works in my mind.
-    // In short, I want to create a function to represent each possible cycle that happens in the
-    // CPU, so the opcodes can simply reference a list of these as their spec. (See MOS6502::new)
+    // CPU Common functions //
+    // Not actually used as sub-instructions, although their function signatures might make them
+    // seem so. They are just commonly referenced by sub-instructions.
 
-    /// Update N and Z flags (NOT A SUB-INSTRUCTION)
+    /// Update N and Z flags
     fn upd_nz(&mut self, number: u8) {
         self.status.set(Status::NEGATIVE, number & 0x80 == 0x80);
         self.status.set(Status::ZERO, number == 0);
     }
+    /// Immediate load into data latch, increment PC
+    fn imm_dl(&mut self) {
+        self.state.data_latch = self.bus.borrow_mut().read(self.program_counter);
+        self.program_counter += 1;
+    }
+
+    // CPU SUB-INSTRUCTIONS //
+    // I Have no idea if this strat will work long-term. But the model works in my mind.
+    // In short, I want to create a function to represent each possible cycle that happens in the
+    // CPU, so the opcodes can simply reference a list of these as their spec. (See MOS6502::new)
 
     // -------- //
     // FETCHERS //
@@ -225,11 +242,6 @@ impl MOS6502 {
 
     // IMMEDIATE //
 
-    /// Immediate load into data latch, increment PC
-    fn imm_dl(&mut self) {
-        self.state.data_latch = self.bus.borrow_mut().read(self.program_counter);
-        self.program_counter += 1;
-    }
     /// Immediate fetch into accumulator
     fn imm_a(&mut self) {
         self.imm_dl();
@@ -248,70 +260,59 @@ impl MOS6502 {
         self.x = self.state.data_latch;
         self.upd_nz(self.x);
     }
-
     /// Immediate fetch into zero-page address latch
     fn imm_zal(&mut self) {
         self.imm_dl();
         self.state.zpg_addr_latch = self.state.data_latch;
     }
-
-    /// Immediate fetch into low-byte of absolute address latch
+    /// Immediate fetch into low byte of absolute address latch.
+    /// Zeroes out the high byte as a side effect.
     fn imm_lo_aal(&mut self) {
         self.imm_dl();
         self.state.abs_addr_latch = self.state.data_latch as u16;
     }
-    /// Immediate fetch into high-byte of absolute address latch
+    /// Immediate fetch into high byte of absolute address latch.
+    /// Preserves the low byte.
     fn imm_hi_aal(&mut self) {
         self.imm_dl();
         self.state.abs_addr_latch &= 0xFF; // Make sure the high byte is cleared
         self.state.abs_addr_latch |= (self.state.data_latch as u16) << 8;
     }
-    /// Absolute fetch into accumulator
+
+    // ABSOLUTE //
+
+    /// Zero-page fetch into accumulator
     fn zal_lda(&mut self) {
         self.a = self.bus.borrow_mut().read(self.state.zpg_addr_latch as u16);
         self.upd_nz(self.a);
     }
-    /// Absolute fetch into X register
+    /// Zero-page fetch into X register
     fn zal_ldx(&mut self) {
         self.x = self.bus.borrow_mut().read(self.state.zpg_addr_latch as u16);
         self.upd_nz(self.x);
     }
-    /// Absolute fetch into Y register
+    /// Zero-page fetch into Y register
     fn zal_ldy(&mut self) {
         self.y = self.bus.borrow_mut().read(self.state.zpg_addr_latch as u16);
         self.upd_nz(self.y);
     }
-
-    /// Indirect (pointer found in zero-page latch) fetch into low_byte of absolute address latch
-    fn ind_lo_aal(&mut self) {
-        self.state.abs_addr_latch = self.bus.borrow_mut().read(self.state.zpg_addr_latch as u16) as u16;
-    }
-    /// Indirect (pointer found in zero-page latch) fetch into high_byte of absolute address latch
-    fn ind_hi_aal(&mut self) {
-        self.state.abs_addr_latch &= 0xFF; // Make sure the high byte is cleared
-        self.state.abs_addr_latch |= (self.bus.borrow_mut().read((self.state.zpg_addr_latch + 1) as u16) as u16) << 8;
-    }
-
-    // ABSOLUTE //
-
     /// Absolute fetch into accumulator
     fn aal_lda(&mut self) {
         self.a = self.bus.borrow_mut().read(self.state.abs_addr_latch);
         self.upd_nz(self.a);
     }
-    /// Absolute fetch into X reg
+    /// Absolute fetch into X register
     fn aal_ldx(&mut self) {
         self.x = self.bus.borrow_mut().read(self.state.abs_addr_latch);
         self.upd_nz(self.x);
     }
-    /// Absolute fetch into Y reg
+    /// Absolute fetch into Y register
     fn aal_ldy(&mut self) {
         self.y = self.bus.borrow_mut().read(self.state.abs_addr_latch);
         self.upd_nz(self.y);
     }
-
-    /// Absolute fetch (plus index stored in x) into accumulator.
-    /// Page crossings incur additional cycle
+    /// Absolute fetch (plus index stored in X) into accumulator.
+    /// Page crossings incur additional cycle.
     fn x_aal_lda(&mut self) {
         if self.state.abs_addr_latch & 0xFF + self.x as u16 > 0xFF {
             // Wait an extra cycle.
@@ -321,19 +322,8 @@ impl MOS6502 {
         self.a = self.bus.borrow_mut().read(self.state.abs_addr_latch + self.x as u16);
         self.upd_nz(self.a);
     }
-    /// Absolute fetch (plus index stored in x) into accumulator.
-    /// Page crossings incur additional cycle
-    fn x_aal_ldy(&mut self) {
-        if self.state.abs_addr_latch & 0xFF + self.x as u16 > 0xFF {
-            // Wait an extra cycle.
-            // IRL harware takes an extra cycle to resolve the new page.
-            self.state.u_op_queue.push_front(Self::nop);
-        }
-        self.y = self.bus.borrow_mut().read(self.state.abs_addr_latch + self.x as u16);
-        self.upd_nz(self.y);
-    }
-    /// Absolute fetch (plus index stored in y) into accumulator.
-    /// Page crossings incur additional cycle
+    /// Absolute fetch (plus index stored in Y) into accumulator.
+    /// Page crossings incur additional cycle.
     fn y_aal_lda(&mut self) {
         if self.state.abs_addr_latch & 0xFF + self.y as u16 > 0xFF {
             // Wait an extra cycle.
@@ -343,8 +333,19 @@ impl MOS6502 {
         self.a = self.bus.borrow_mut().read(self.state.abs_addr_latch + self.y as u16);
         self.upd_nz(self.a);
     }
-    /// Absolute fetch (plus index stored in y) into accumulator.
-    /// Page crossings incur additional cycle
+    /// Absolute fetch (plus index stored in X) into Y register.
+    /// Page crossings incur additional cycle.
+    fn x_aal_ldy(&mut self) {
+        if self.state.abs_addr_latch & 0xFF + self.x as u16 > 0xFF {
+            // Wait an extra cycle.
+            // IRL harware takes an extra cycle to resolve the new page.
+            self.state.u_op_queue.push_front(Self::nop);
+        }
+        self.y = self.bus.borrow_mut().read(self.state.abs_addr_latch + self.x as u16);
+        self.upd_nz(self.y);
+    }
+    /// Absolute fetch (plus index stored in Y) into X register.
+    /// Page crossings incur additional cycle.
     fn y_aal_ldx(&mut self) {
         if self.state.abs_addr_latch & 0xFF + self.y as u16 > 0xFF {
             // Wait an extra cycle.
@@ -355,48 +356,47 @@ impl MOS6502 {
         self.upd_nz(self.x);
     }
 
+    // INDIRECT //
+
+    /// Indirect (pointer found with zero-page latch) fetch into low byte of absolute address latch
+    /// Zeroes out the high byte as a side effect.
+    fn ind_lo_aal(&mut self) {
+        self.state.abs_addr_latch = self.bus.borrow_mut().read(self.state.zpg_addr_latch as u16) as u16;
+    }
+    /// Indirect (pointer found with zero-page latch) fetch into high byte of absolute address latch
+    /// Preserves the low byte.
+    fn ind_hi_aal(&mut self) {
+        self.state.abs_addr_latch &= 0xFF; // Make sure the high byte is cleared
+        self.state.abs_addr_latch |= (self.bus.borrow_mut().read((self.state.zpg_addr_latch + 1) as u16) as u16) << 8;
+    }
+
     // ------- //
     // STORERS //
     // ------- //
 
-    /// Absolute write from data latch
-    fn wr_abs(&mut self) {
-        self.bus.borrow_mut().write(self.state.abs_addr_latch, self.state.data_latch);
-    }
     /// Absolute write from Y reg
-    fn wr_y_abs(&mut self) {
-        self.state.data_latch = self.y;
-        self.wr_abs();
+    fn aal_sty(&mut self) {
+        self.bus.borrow_mut().write(self.state.abs_addr_latch, self.y);
     }
     /// Absolute write from accumulator
-    fn wr_a_abs(&mut self) {
-        self.state.data_latch = self.a;
-        self.wr_abs();
+    fn aal_sta(&mut self) {
+        self.bus.borrow_mut().write(self.state.abs_addr_latch, self.a);
     }
     /// Absolute write from X reg
-    fn wr_x_abs(&mut self) {
-        self.state.data_latch = self.x;
-        self.wr_abs();
-    }
-
-    /// Zero-page store from data latch
-    fn wr_zpg(&mut self) {
-        self.bus.borrow_mut().write(self.state.zpg_addr_latch as u16, self.state.data_latch);
+    fn aal_stx(&mut self) {
+        self.bus.borrow_mut().write(self.state.abs_addr_latch, self.x);
     }
     /// Zero-page write from Y reg
-    fn wr_y_zpg(&mut self) {
-        self.state.data_latch = self.y;
-        self.wr_zpg();
+    fn zal_sty(&mut self) {
+        self.bus.borrow_mut().write(self.state.zpg_addr_latch as u16, self.y);
     }
     /// Zero-page write from accumulator
-    fn wr_a_zpg(&mut self) {
-        self.state.data_latch = self.a;
-        self.wr_zpg();
+    fn zal_sta(&mut self) {
+        self.bus.borrow_mut().write(self.state.zpg_addr_latch as u16, self.a);
     }
     /// Zero-page write from X reg
-    fn wr_x_zpg(&mut self) {
-        self.state.data_latch = self.x;
-        self.wr_zpg();
+    fn zal_stx(&mut self) {
+        self.bus.borrow_mut().write(self.state.zpg_addr_latch as u16, self.x);
     }
 
     /// Add value stored in reg. X to Zero-page Address Latch
