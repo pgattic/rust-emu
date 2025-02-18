@@ -77,7 +77,7 @@ In addition, I want to learn more about real-time systems that require shared re
     - [ ] SEC
     - [ ] SED
     - [ ] SEI
-    - [ ] STA (3/7 opcodes)
+    - [X] STA (7 opcodes)
     - [X] STX (3 opcodes)
     - [X] STY (3 opcodes)
     - [ ] TAX

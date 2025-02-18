@@ -108,6 +108,8 @@ impl MOS6502 {
         // I guess in this sense, they're actually procedures since their only purpose is to modify
         // state.
 
+        instrs[0x81] = // STA X, ind
+            InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::ind_lo_aal, Self::ind_hi_aal, Self::aal_sta]);
         instrs[0x84] = // STY zpg
             InstrDef::from(&[Self::imm_zal, Self::zal_sty]);
         instrs[0x85] = // STA zpg
@@ -121,16 +123,22 @@ impl MOS6502 {
         instrs[0x8E] = // STX abs
             InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_stx]);
 
+        instrs[0x91] = // STA ind, Y
+            InstrDef::from(&[Self::imm_zal, Self::ind_lo_aal, Self::ind_hi_aal, Self::add_y_aal, Self::aal_sta]);
         instrs[0x94] = // STY zpg, X
             InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::zal_sty]);
         instrs[0x95] = // STA zpg, X
             InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::zal_sta]);
         instrs[0x96] = // STX zpg, Y
             InstrDef::from(&[Self::imm_zal, Self::add_y_zal, Self::zal_stx]);
+        instrs[0x99] = // STA abs, Y
+            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::add_y_aal, Self::aal_sta]);
+        instrs[0x9D] = // STA abs, X
+            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::add_x_aal, Self::aal_sta]);
 
         instrs[0xA0] = // LDY #
             InstrDef::from(&[Self::imm_y]);
-        instrs[0xA1] = // LDA x,ind
+        instrs[0xA1] = // LDA X,ind
             InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::ind_lo_aal, Self::ind_hi_aal, Self::aal_lda]);
         instrs[0xA2] = // LDX #
             InstrDef::from(&[Self::imm_x]);
@@ -151,7 +159,7 @@ impl MOS6502 {
         instrs[0xAE] = // LDX abs
             InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_ldx]);
 
-        instrs[0xB1] = // LDA ind, y
+        instrs[0xB1] = // LDA ind, Y
             InstrDef::from(&[Self::imm_zal, Self::ind_lo_aal, Self::ind_hi_aal, Self::y_aal_lda]);
         // NOTE: The x register is actually added to the zeropage latch, while when similar
         // operations are performed on the Absolute latch, the absolute latch is not modified.
@@ -419,6 +427,18 @@ impl MOS6502 {
     /// Add value stored in reg. Y to Zero-page Address Latch
     fn add_y_zal(&mut self) {
         self.state.zpg_addr_latch += self.y;
+    }
+    /// Add value stored in reg. X to Absolute Address Latch.
+    /// Also perform dummy read from the resultant address
+    fn add_x_aal(&mut self) {
+        self.state.abs_addr_latch += self.x as u16;
+        _ = self.bus.borrow_mut().read(self.state.abs_addr_latch);
+    }
+    /// Add value stored in reg. Y to Absolute Address Latch
+    /// Also perform dummy read from the resultant address
+    fn add_y_aal(&mut self) {
+        self.state.abs_addr_latch += self.y as u16;
+        _ = self.bus.borrow_mut().read(self.state.abs_addr_latch);
     }
     /// No-op.
     fn nop(&mut self) {}
