@@ -80,12 +80,12 @@ In addition, I want to learn more about real-time systems that require shared re
     - [X] STA (7 opcodes)
     - [X] STX (3 opcodes)
     - [X] STY (3 opcodes)
-    - [ ] TAX
-    - [ ] TAY
+    - [X] TAX (1 opcode)
+    - [X] TAY (1 opcode)
     - [ ] TSX
-    - [ ] TXA
+    - [X] TXA (1 opcode)
     - [ ] TXS
-    - [ ] TYA
+    - [X] TYA (1 opcode)
 - [ ] PPU
 - [ ] APU
 

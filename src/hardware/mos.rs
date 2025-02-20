@@ -6,8 +6,6 @@ use std::cell::RefCell;
 use crate::RustNesError;
 use crate::hardware::Bus;
 
-/// Maximum number of instruction cycles an instruction can use.
-/// Yeah, smells like CISC to me.
 const MAX_INSTR_CYCLES: usize = 6;
 
 /// Const-sized struct for storing an instruction definition.
@@ -23,7 +21,7 @@ impl InstrDef {
     /// NOTE that the actual processing of an instruction is 1 less cycle than how long it takes on
     /// paper; the first cycle is actually fetching the instruction.
     pub fn from(ops: &[fn(&mut MOS6502)]) -> Self {
-        assert!(ops.len() <= MAX_INSTR_CYCLES);
+        debug_assert!(ops.len() <= MAX_INSTR_CYCLES, "The amount of operations must be less than or equal to {}\nEither condense the instruction or modify MAX_INSTR_CYCLES", MAX_INSTR_CYCLES);
         let mut u_ops = [None; MAX_INSTR_CYCLES];
         for (i, &op) in ops.iter().enumerate() {
             u_ops[i] = Some(op);
@@ -116,6 +114,8 @@ impl MOS6502 {
             InstrDef::from(&[Self::imm_zal, Self::zal_sta]);
         instrs[0x86] = // STX zpg
             InstrDef::from(&[Self::imm_zal, Self::zal_stx]);
+        instrs[0x8A] = // TXA impl
+            InstrDef::from(&[Self::txa]);
         instrs[0x8C] = // STY abs
             InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_sty]);
         instrs[0x8D] = // STA abs
@@ -131,6 +131,8 @@ impl MOS6502 {
             InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::zal_sta]);
         instrs[0x96] = // STX zpg, Y
             InstrDef::from(&[Self::imm_zal, Self::add_y_zal, Self::zal_stx]);
+        instrs[0x98] = // TYA impl
+            InstrDef::from(&[Self::tya]);
         instrs[0x99] = // STA abs, Y
             InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::add_y_aal, Self::aal_sta]);
         instrs[0x9D] = // STA abs, X
@@ -148,10 +150,12 @@ impl MOS6502 {
             InstrDef::from(&[Self::imm_zal, Self::zal_lda]);
         instrs[0xA6] = // LDX zpg
             InstrDef::from(&[Self::imm_zal, Self::zal_ldx]);
-        // instrs[0xA8] = // TAY impl
+        instrs[0xA8] = // TAY impl
+            InstrDef::from(&[Self::tay]);
         instrs[0xA9] = // LDA #
             InstrDef::from(&[Self::imm_a]);
-        // instrs[0xAA] = // TAX impl
+        instrs[0xAA] = // TAX impl
+            InstrDef::from(&[Self::tax]);
         instrs[0xAC] = // LDY abs
             InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_ldy]);
         instrs[0xAD] = // LDA abs
@@ -225,16 +229,21 @@ impl MOS6502 {
     pub fn step(&mut self) -> Result<(), RustNesError> {
         match self.state.u_op_queue.pop_front() {
             None => {
-                let next_byte = self.bus.borrow()
-                    .read(self.program_counter); // Fetch
+                let next_byte = self.get_prg(); // Fetch
                 let next_instr = self.instructions[next_byte as usize];
-                self.program_counter += 1;
                 if next_instr.cycles == 0 { return Err(RustNesError::InvalidOpcode(next_byte)) }
                 self.state.u_op_queue = next_instr.as_vec().into(); // Decode
             },
             Some(next) => { next(self) }, // Execute
         }
         Ok(())
+    }
+
+    /// Retrieves the next byte in the program, and increments the program counter.
+    fn get_prg(&mut self) -> u8 {
+        let result = self.bus.borrow_mut().read(self.program_counter);
+        self.program_counter += 1;
+        result
     }
 
     // CPU Common functions //
@@ -420,6 +429,29 @@ impl MOS6502 {
         self.bus.borrow_mut().write(self.state.zpg_addr_latch as u16, self.x);
     }
 
+    // Single-operation Instructions //
+
+    /// Transfer Accumulator into X reg
+    fn tax(&mut self) {
+        self.x = self.a;
+        self.upd_nz(self.x);
+    }
+    /// Transfer Accumulator into Y reg
+    fn tay(&mut self) {
+        self.y = self.a;
+        self.upd_nz(self.y);
+    }
+    /// Transfer X reg into Accumulator
+    fn txa(&mut self) {
+        self.a = self.x;
+        self.upd_nz(self.a);
+    }
+    /// Transfer Y reg into Accumulator
+    fn tya(&mut self) {
+        self.a = self.y;
+        self.upd_nz(self.a);
+    }
+
     /// Add value stored in reg. X to Zero-page Address Latch
     fn add_x_zal(&mut self) {
         self.state.zpg_addr_latch += self.x;
@@ -434,7 +466,7 @@ impl MOS6502 {
         self.state.abs_addr_latch += self.x as u16;
         _ = self.bus.borrow_mut().read(self.state.abs_addr_latch);
     }
-    /// Add value stored in reg. Y to Absolute Address Latch
+    /// Add value stored in reg. Y to Absolute Address Latch.
     /// Also perform dummy read from the resultant address
     fn add_y_aal(&mut self) {
         self.state.abs_addr_latch += self.y as u16;
