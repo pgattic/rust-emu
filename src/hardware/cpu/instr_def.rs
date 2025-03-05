@@ -4,12 +4,19 @@ pub(crate) const MAX_INSTR_CYCLES: usize = 6;
 
 /// `opcode` macro
 #[macro_export]
-macro_rules! opc {
-    ($instrs:expr, $code:literal, [$($microop:ident),*]) => {
-        $instrs[$code] = {
-            let ops: &[fn(&mut MOS6502)] = &[$(Self::$microop),*];
-            InstrDef::from(ops)
-        };
+macro_rules! opcodes {
+    // We take the 'instrs' array plus a block of `opcode => [microops...]` lines.
+    ($instrs:expr, {
+        $($opcode:literal => [$($microop:ident),*]),+ $(,)?
+    }) => {
+        $(
+            $instrs[$opcode as usize] = {
+                let ops: &[fn(&mut MOS6502)] = &[
+                    $(Self::$microop),*
+                ];
+                InstrDef::from(ops)
+            };
+        )+
     }
 }
 
