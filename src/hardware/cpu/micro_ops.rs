@@ -2,9 +2,8 @@ use crate::MOS6502;
 
 impl MOS6502 {
     // CPU SUB-INSTRUCTIONS //
-    // I Have no idea if this strat will work long-term. But the model works in my mind.
-    // In short, I want to create a function to represent each possible cycle that happens in the
-    // CPU, so the opcodes can simply reference a list of these as their spec. (See MOS6502::new)
+    // Below are all of the possible operations that may happen during a clock cycle in the CPU.
+    // The specs for CPU opcodes (found in `instructions.rs`) are lists of references to these.
 
     // -------- //
     // FETCHERS //

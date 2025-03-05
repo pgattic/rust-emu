@@ -2,6 +2,17 @@ use super::MOS6502;
 
 pub(crate) const MAX_INSTR_CYCLES: usize = 6;
 
+/// `opcode` macro
+#[macro_export]
+macro_rules! opc {
+    ($instrs:expr, $code:literal, [$($microop:ident),*]) => {
+        $instrs[$code] = {
+            let ops: &[fn(&mut MOS6502)] = &[$(Self::$microop),*];
+            InstrDef::from(ops)
+        };
+    }
+}
+
 /// Const-sized struct for storing an instruction definition.
 #[derive(Clone, Copy)]
 pub struct InstrDef {
@@ -16,6 +27,9 @@ impl InstrDef {
     /// paper; the first cycle is actually fetching the instruction.
     pub(crate) fn from(ops: &[fn(&mut MOS6502)]) -> Self {
         debug_assert!(ops.len() <= MAX_INSTR_CYCLES, "The amount of operations must be less than or equal to {}\nEither condense the instruction or modify MAX_INSTR_CYCLES", MAX_INSTR_CYCLES);
+        //if ops.len() > MAX_INSTR_CYCLES {
+        //    compile_error!()
+        //}
         let mut u_ops = [None; MAX_INSTR_CYCLES];
         for (i, &op) in ops.iter().enumerate() {
             u_ops[i] = Some(op);
@@ -32,3 +46,4 @@ impl InstrDef {
         self.u_ops[0..self.cycles].iter().map(|&it| it.unwrap()).collect()
     }
 }
+

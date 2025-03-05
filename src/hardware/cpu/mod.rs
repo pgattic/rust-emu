@@ -1,6 +1,8 @@
 pub(crate) mod instr_def;
 pub(crate) mod state;
+pub(crate) mod status;
 pub(crate) mod micro_ops;
+pub(crate) mod instructions;
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -8,20 +10,8 @@ use crate::RustNesError;
 use crate::hardware::Bus;
 use crate::hardware::cpu::instr_def::*;
 use crate::hardware::cpu::state::MOSState;
+use crate::hardware::cpu::status::Status;
 
-
-bitflags::bitflags! {
-    struct Status: u8 {
-        const CARRY     = 0b0000_0001;
-        const ZERO      = 0b0000_0010;
-        const INTERRUPT = 0b0000_0100;
-        const DECIMAL   = 0b0000_1000;
-        const BREAK     = 0b0001_0000;
-        const UNUSED    = 0b0010_0000;
-        const OVERFLOW  = 0b0100_0000;
-        const NEGATIVE  = 0b1000_0000;
-    }
-}
 
 /// Virtual MOS 6502 processor. The roles of `MOS6502` are as follows:
 ///
@@ -77,7 +67,7 @@ impl MOS6502 {
             status: Status::empty(),
             stack_ptr: 0,
             state: MOSState::new(),
-            instructions: Self::instruction_table()
+            instructions: Self::instruction_table(),
         }
     }
 
@@ -142,97 +132,6 @@ impl MOS6502 {
     pub(crate) fn imm_dl(&mut self) {
         self.state.data_latch = self.bus.borrow_mut().read(self.program_counter);
         self.program_counter += 1;
-    }
-
-    /// Here we define each CPU opcode by what it does for each cycle of its execution. Each opcode
-    /// is represented simply by a list of function references. As seen in the definition of
-    /// `InstrDef`, the function signatures must be `fn(&mut MOS6502) -> ()`.
-    ///
-    /// I guess in this sense, they're actually procedures since their only purpose is to modify
-    /// state.
-    pub fn instruction_table() -> [InstrDef; 256] {
-        let mut instrs: [InstrDef; 256] = [InstrDef{cycles: 0, u_ops: [None; MAX_INSTR_CYCLES]}; 256];
-
-        instrs[0x81] = // STA X, ind
-            InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::ind_lo_aal, Self::ind_hi_aal, Self::aal_sta]);
-        instrs[0x84] = // STY zpg
-            InstrDef::from(&[Self::imm_zal, Self::zal_sty]);
-        instrs[0x85] = // STA zpg
-            InstrDef::from(&[Self::imm_zal, Self::zal_sta]);
-        instrs[0x86] = // STX zpg
-            InstrDef::from(&[Self::imm_zal, Self::zal_stx]);
-        instrs[0x8A] = // TXA impl
-            InstrDef::from(&[Self::txa]);
-        instrs[0x8C] = // STY abs
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_sty]);
-        instrs[0x8D] = // STA abs
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_sta]);
-        instrs[0x8E] = // STX abs
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_stx]);
-
-        instrs[0x91] = // STA ind, Y
-            InstrDef::from(&[Self::imm_zal, Self::ind_lo_aal, Self::ind_hi_aal, Self::add_y_aal, Self::aal_sta]);
-        instrs[0x94] = // STY zpg, X
-            InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::zal_sty]);
-        instrs[0x95] = // STA zpg, X
-            InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::zal_sta]);
-        instrs[0x96] = // STX zpg, Y
-            InstrDef::from(&[Self::imm_zal, Self::add_y_zal, Self::zal_stx]);
-        instrs[0x98] = // TYA impl
-            InstrDef::from(&[Self::tya]);
-        instrs[0x99] = // STA abs, Y
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::add_y_aal, Self::aal_sta]);
-        instrs[0x9D] = // STA abs, X
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::add_x_aal, Self::aal_sta]);
-
-        instrs[0xA0] = // LDY #
-            InstrDef::from(&[Self::imm_y]);
-        instrs[0xA1] = // LDA X,ind
-            InstrDef::from(&[Self::imm_zal, Self::add_x_zal, Self::ind_lo_aal, Self::ind_hi_aal, Self::aal_lda]);
-        instrs[0xA2] = // LDX #
-            InstrDef::from(&[Self::imm_x]);
-        instrs[0xA4] = // LDY zpg
-            InstrDef::from(&[Self::imm_zal, Self::zal_ldy]);
-        instrs[0xA5] = // LDA zpg
-            InstrDef::from(&[Self::imm_zal, Self::zal_lda]);
-        instrs[0xA6] = // LDX zpg
-            InstrDef::from(&[Self::imm_zal, Self::zal_ldx]);
-        instrs[0xA8] = // TAY impl
-            InstrDef::from(&[Self::tay]);
-        instrs[0xA9] = // LDA #
-            InstrDef::from(&[Self::imm_a]);
-        instrs[0xAA] = // TAX impl
-            InstrDef::from(&[Self::tax]);
-        instrs[0xAC] = // LDY abs
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_ldy]);
-        instrs[0xAD] = // LDA abs
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_lda]);
-        instrs[0xAE] = // LDX abs
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::aal_ldx]);
-
-        instrs[0xB1] = // LDA ind, Y
-            InstrDef::from(&[Self::imm_zal, Self::ind_lo_aal, Self::ind_hi_aal, Self::y_aal_lda]);
-        // NOTE: The x register is actually added to the zeropage latch, while when similar
-        // operations are performed on the Absolute latch, the absolute latch is not modified.
-        instrs[0xB4] = // LDY zpg, X
-            InstrDef::from(&[Self::imm_zal, Self::add_x_zal /* <- NOTE here */, Self::zal_ldy]);
-        instrs[0xB5] = // LDA zpg, X
-            InstrDef::from(&[Self::imm_zal, Self::add_x_zal /* <- NOTE here */, Self::zal_lda]);
-        instrs[0xB6] = // LDX zpg, Y
-            InstrDef::from(&[Self::imm_zal, Self::add_y_zal /* <- NOTE here */, Self::zal_ldx]);
-        instrs[0xB9] = // LDA abs, Y
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::y_aal_lda]);
-        instrs[0xBC] = // LDY abs, X
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::x_aal_ldy]);
-        instrs[0xBD] = // LDA abs, X
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::x_aal_lda]);
-        instrs[0xBE] = // LDX abs, Y
-            InstrDef::from(&[Self::imm_lo_aal, Self::imm_hi_aal, Self::y_aal_ldx]);
-
-        instrs[0xEA] = // NOP
-            InstrDef::from(&[Self::nop]);
-
-        instrs
     }
 }
 
