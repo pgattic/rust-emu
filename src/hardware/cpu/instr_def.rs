@@ -2,7 +2,8 @@ use super::MOS6502;
 
 pub(crate) const MAX_INSTR_CYCLES: usize = 6;
 
-/// `opcode` macro
+/// Takes in a mutable list of `InstrDef`s as its first parameter, then a sequence of opcode numbers
+/// followed by their micro-operations.
 #[macro_export]
 macro_rules! opcodes {
     // We take the 'instrs' array plus a block of `opcode => [microops...]` lines.

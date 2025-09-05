@@ -7,9 +7,6 @@ impl MOS6502 {
     /// opcode is represented simply by a list of function references. As seen in the definition of
     /// `InstrDef`, the function signatures must be `fn(&mut MOS6502) -> ()`.
     ///
-    /// I guess in this sense, they're actually procedures since their only purpose is to modify
-    /// state.
-    ///
     /// See [6502 Instruction Set](https://www.masswerk.at/6502/6502_instruction_set.html) for info.
     pub fn instruction_table() -> [InstrDef; 256] {
         let mut instrs: [InstrDef; 256] = [InstrDef{cycles: 0, u_ops: [None; MAX_INSTR_CYCLES]}; 256];
@@ -56,7 +53,6 @@ impl MOS6502 {
 
             0xEA => [nop],                                                      // NOP
         });
-
 
         instrs
     }

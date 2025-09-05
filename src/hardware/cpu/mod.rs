@@ -120,8 +120,6 @@ impl MOS6502 {
     }
 
     // CPU Common functions //
-    // Not actually used as sub-instructions, although their function signatures might make them
-    // seem so. They are just commonly referenced by sub-instructions.
 
     /// Update N and Z flags
     pub(crate) fn upd_nz(&mut self, number: u8) {
